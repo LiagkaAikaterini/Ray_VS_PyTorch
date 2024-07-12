@@ -7,9 +7,8 @@ import time
 ray.init(num_cpus=3)
 
 # Read edges from the text file
-# Read edges from the text file
 edges = []
-with open('data/test.txt', 'r') as file:
+with open('data/test_data.txt', 'r') as file:
     for line in file:
         if line.split()[0] == '#':
             continue

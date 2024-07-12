@@ -1,3 +1,7 @@
+# We used the friendster undirected graph from the Standford Unniversity website SNAP
+# The url where you can download the full graph (30 GB) com-friendster.ungraph.txt is 
+# https://snap.stanford.edu/data/com-Friendster.html
+
 def reduce_file_size(input, data, target_size_gb):
     input_file = open(input)
     data_file = open( data, 'w')
