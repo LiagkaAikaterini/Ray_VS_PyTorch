@@ -8,7 +8,7 @@ import time
 import tracemalloc
 
 # Initialize Ray with 3 workers
-ray.init(address = 'auto', num_cpus = 4)  #??? ISWS KENO, ISWS ME ray.init(address='auto') CHECKARE TO 
+ray.init(address = 'auto')  #??? ISWS KENO, ISWS ME ray.init(address='auto') CHECKARE TO 
 
 # Load data from a text file
 # Assume the text file is a CSV with a header row
@@ -21,7 +21,7 @@ X = df.values
 # Put the data in Ray's object store
 X_id = ray.put(X)
 
-def train_and_evaluate_givedifferentname(config):
+def ray_kmeans(config):
 
     # Retrieve the data from the object store
     X_data = ray.get(X_id)
@@ -52,11 +52,11 @@ tracemalloc.start()
 
 # Ray Tune
 analysis = tune.run(
-    train_and_evaluate_givedifferentname,
-    config = {"n_clusters": tune.grid_search([8, 12, 16])},  # Example grid search over different cluster sizes
+    ray_kmeans,
+    config = {"n_clusters": 16},  # Example grid search over different cluster sizes
     num_samples = 3,  # Number of trials
     resources_per_trial = {"cpu": 4},
-    local_dir = "/home/user/ray/kmeans/results",
+    storage_path = "/home/user/ray/kmeans/results",
 )
 
 # Record end time
