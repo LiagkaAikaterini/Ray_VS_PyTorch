@@ -1,2 +1,4 @@
 *.txt
+*.csv
 .venv
+data/connected.py
