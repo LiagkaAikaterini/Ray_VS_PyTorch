@@ -1,4 +1,4 @@
 *.txt
 *.csv
 .venv
-data/connected.py
+test_code/*

@@ -7,6 +7,7 @@ def reduce_file_size(input, data, target_size_gb):
     data_file = open(data, 'w')
     size = 0
     target_size = target_size_gb * (1024**3)
+    data_file.write("node1,node2\n")
 
     for line in input_file:
         if line.startswith('#'):

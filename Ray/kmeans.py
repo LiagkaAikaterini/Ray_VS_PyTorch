@@ -1,131 +1,122 @@
 import os
 import ray
-from ray import tune, train
 import numpy as np
-import pandas as pd
+import ray.data
 from sklearn.cluster import KMeans
 from sklearn.metrics import calinski_harabasz_score
 import time
 import tracemalloc
-import ray._private.services
+import pyarrow.fs as fs
+import pyarrow.csv as pv
 
-# Initialize Ray
-ray.init(address = 'auto')
+# Function to determine the number of active nodes
+def get_num_nodes():
+    nodes = ray.nodes()
+    return sum(1 for node in nodes if node['Alive'])
 
-# Load data from a csv file - uncomment one of the data_files depending on the size you prefer
-#data_file = "~/data/test_data.csv"  # 10  MB (Test)
-data_file = "~/data/data_1.csv"    # 1   GB
-#data_file = "~/data/data_2.csv"    # 2,5 GB
-#data_file = "~/data/data.csv"      # 10  GB
-df = pd.read_csv(data_file)
+def display_results(config, start_time, end_time, currentMem, peakMem, calinski_harabasz_res):
+    # Display Results
+    data_file = config["datafile"].split('.')[0]    # keep only data file name
 
-# Convert the DataFrame to a NumPy array
-X = df.values
-# Put the data in Ray's object store
-X_id = ray.put(X)
+    results_text = (
+        f"For file {data_file} - number of worker machines {config['num_nodes']} - batch size {config['batch_size']}: \n\n"
+        f"Calinski-Harabasz Score: {calinski_harabasz_res}\n"
+        f"Time taken (Ray): {end_time - start_time} seconds\n"
+        f"Current memory usage is {currentMem / (1024**2):.2f} MB\nPeak was {peakMem / (1024**2):.2f} mB\n\n"
+    )
 
+    print(results_text)
 
-def split_data(num_chunks):
-    # Retrieve the data from the object store
-    X_data = ray.get(X_id)
-    return np.array_split(X_data, num_chunks)
+    # Create custom file name in results directory, in order to save results for different data sizes and number of machines
+    directory = os.path.expanduser('~/ray/kmeans/res')
+    file_name = f"{data_file}_{config['num_nodes']}nodes_results.txt"
+
+    file_path = os.path.join(directory, file_name)
+    
+    # Write results to the custom text file
+    if os.path.exists(file_path):
+        with open(file_path, 'a') as f:
+            f.write(results_text)
+    else:
+        with open(file_path, 'w') as f:
+            f.write(results_text)
 
 
 @ray.remote
-def ray_kmeans(data_chunk, config):
-    #Uncomment to trace which worker node executes ray_kmeans each time
-    """
+def ray_kmeans(data_batch, config):
     node_ip = ray._private.services.get_node_ip_address()
     print(f"Executing on node with IP: {node_ip}")
-    """
 
-    # Perform KMeans clustering
-    kmeans = KMeans(n_clusters=config["n_clusters"], random_state=42).fit(data_chunk)
+    kmeans = KMeans(n_clusters=config["n_clusters"], random_state=42)
+    kmeans.fit(data_batch)
 
-    #Compute the Calinski-Harabasz Index for performance evaluation
-    calinski_harabasz = calinski_harabasz_score(data_chunk, kmeans.labels_)
+    calinski_harabasz = calinski_harabasz_score(data_batch, kmeans.labels_)
 
-    return dict(calinski_harabasz=calinski_harabasz)
+    return calinski_harabasz
 
 
 def train_kmeans(config):
-    # Split the data into chunks (one for each worker)
-    data_chunks = split_data(config["n_chunks"])
+    hdfs_host = '192.168.0.1'
+    hdfs_port = 50000  # Default HDFS port, change if necessary
 
-    # Run KMeans clustering concurrently on different data chunks and different machines
-    results = ray.get([ray_kmeans.options(num_cpus=4).remote(chunk, config) for chunk in data_chunks])
+    # Connect to HDFS using PyArrow's FileSystem
+    hdfs = fs.HadoopFileSystem(host=hdfs_host, port=hdfs_port)
+    hdfs_path = '/data'
+    file_to_read = f'{hdfs_path}/{config["datafile"]}'
 
-    # Aggregate results from all workers
-    calinski_harabasz_scores = [result["calinski_harabasz"] for result in results]
-    # Compute the average of the Calinski-Harabasz metric
-    avg_calinski_harabasz = np.mean(calinski_harabasz_scores)
+    with hdfs.open_input_file(file_to_read) as file:
+        # Define CSV read options to read in chunks
+        read_options = pv.ReadOptions(block_size=config["batch_size"])  # 50 MB chunks
+        csv_reader = pv.open_csv(file, read_options=read_options)
+
+        results = ray.get([ray_kmeans.remote(batch, config) for batch in csv_reader])
+
+    #calinski_harabasz_scores = [result["calinski_harabasz"] for result in results]
+    avg_calinski_harabasz = np.mean(results)
+
+    return avg_calinski_harabasz
 
 
-    train.report(dict(avg_calinski_harabasz=avg_calinski_harabasz))
+def main():
+    # Initialize Ray
+    ray.init(address='auto')
 
+    # Record start time and memory usage
+    start_time = time.time()
+    tracemalloc.start()
 
-
-# Record start time
-# Start memory tracing
-start_time = time.time()
-tracemalloc.start()
-
-# Parameters for Ray Tune - uncomment the number of chunks (workers) you prefer
-config = {
+    # Parameters
+    config = {
+        "datafile" : "data_1.csv",
         "n_clusters": 16,
-        #"n_chunks": 1
-        "n_chunks": 2
-        }
+        "num_nodes" : get_num_nodes(),
+        "cpus_per_node" : 4,
+        "batch_size" : 1024 * 1024 * 50  # 50 MB chunks - Adjust as needed
+    }
 
-placement_group_factory = tune.PlacementGroupFactory(
-    [{"CPU": 4.0}] + [{"CPU": 4.0}] * config["n_chunks"]
-)
+    res_score = train_kmeans(config)
+    
+    """
+    # Run Ray Tune
+    analysis = tune.run(
+        train_kmeans,
+        config=config,
+        num_samples=1,  # Number of trials
+        resources_per_trial={"cpu": num_nodes * cpus_per_node},  # Adjust resources dynamically
+        storage_path="/home/user/ray/kmeans/results",
+    )
+    """
 
-# Ray Tune
-analysis = tune.run(
-    train_kmeans,
-    config = config,
-    num_samples = 1,  # Number of trials
-    resources_per_trial = placement_group_factory,
-    storage_path = "/home/user/ray/kmeans/results",
-)
+    # Record end time and memory usage
+    end_time = time.time()
+    currentMem, peakMem = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
 
-# Record end time
-# End memory tracing
-end_time = time.time()
-currentMem, peakMem = tracemalloc.get_traced_memory()
-tracemalloc.stop()
+    display_results(config, start_time, end_time, currentMem, peakMem, res_score)
 
-
-# Display Results
-
-# Print results
-print("\nTime taken (Ray):", end_time - start_time, "seconds")
-print(f"Current memory usage is {currentMem / 10**6} MB; Peak was {peakMem / 10**6} MB\n")
+    # Shutdown Ray
+    ray.shutdown()
 
 
-# Save Results in txt file
-trial = analysis.get_best_trial(metric="avg_calinski_harabasz", mode="max")
-calinski_harabasz_score = trial.metric_analysis["avg_calinski_harabasz"]["max"]
-
-results_text = (
-    f"For file {data_file} and number of data chunks (worker machines) {config['n_chunks']}: \n\n"
-    f"Calinski-Harabasz Score: {calinski_harabasz_score}\n"
-    f"Time taken (Ray): {end_time - start_time} seconds\n"
-    f"Current memory usage is {currentMem / 10**6} MB\nPeak was {peakMem / 10**6} MB\n"
-)
-
-# Create custom file name in results directory, in order to save results for different data sizes and number of machines
-base_name = os.path.splitext(os.path.basename(data_file))[0]
-directory = os.path.expanduser('~/ray/kmeans/results')
-file_name = f"{base_name}_{config['n_chunks']}datachunks_results.txt"
-
-results_file_name = os.path.join(directory, file_name)
-
-# Write results to the custom text file
-with open(results_file_name, "w") as f:
-    f.write(results_text)
-
-
-# Shutdown Ray
-ray.shutdown()
+if __name__ == "__main__":
+    main()
