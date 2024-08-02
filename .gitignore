@@ -1,0 +1,4 @@
+*.txt
+*.csv
+.venv
+test_code/*
