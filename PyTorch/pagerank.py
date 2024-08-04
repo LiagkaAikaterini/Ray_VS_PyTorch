@@ -10,7 +10,6 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.metrics import calinski_harabasz_score
 
-
 class GraphEdgeDataset(Dataset): 
     def __init__(self, chunk):
         self.edges = self.load_chunk(chunk)
@@ -38,17 +37,6 @@ def setup(rank, world_size):
 
 def cleanup():
     dist.destroy_process_group()
-
-def get_node_of_interest(chunk):
-    nodes1 = chunk.column('node1').to_pylist()
-    first_element = nodes1[0]
-    last_element = nodes1[-1]
-    
-    nodes = set(nodes1)
-    nodes.discard(first_element)
-    nodes.discard(last_element)
-    
-    return list(nodes)[:2]
          
          
 # Display and save the results
@@ -86,7 +74,52 @@ def pytorch_kmeans(data_batch, clusters):
 
     return calinski_harabasz
 """
+def get_node_of_interest(chunk):
+    
+    nodes1 = chunk[0].tolist()
+    nodes2 = chunk[1].tolist()
+    
+    # create set to get rid of duplicates
+    all_nodes_set = set(nodes1 + nodes2)
+    # create node dictionary to know which node corresponds to which 
+    all_nodes = list(all_nodes_set)
+    all_nodes.sort()
+    node_map = {node: idx for idx, node in enumerate(all_nodes)}
+    
+    mapped_nodes1 = [node_map[node] for node in nodes1]
+    mapped_nodes2 = [node_map[node] for node in nodes2]
+    
+    # discard first and last nodes that may exist in other batches as well
+    first_element = nodes1[0]
+    last_element = nodes1[-1]
+    
+    nodes = set(nodes1)
+    nodes.discard(first_element)
+    nodes.discard(last_element)
+    
+    if len(nodes)==0:
+        chosen_node_idx = None
 
+    #print(len(nodes))
+    else:
+        chosen_node = list(nodes)[0]
+        chosen_node_idx = node_map[chosen_node]
+
+    return chosen_node_idx, torch.as_tensor(data= [mapped_nodes1, mapped_nodes2]), all_nodes
+
+
+def result_format(nodes_list, node, pagerank_scores):
+    res_dict = {}
+    scores = pagerank_scores.tolist()[0]
+    
+    for idx, score in enumerate(scores):
+        if score == 0.0:
+            continue
+        res_dict[nodes_list[idx]] = score
+        
+    return {node : res_dict}
+        
+    
 def distributed_pagerank(rank, world_size):
     # Uncomment only the datafile you want to use
     #datafile = "test_data.csv"  # 10   MB
@@ -117,17 +150,23 @@ def distributed_pagerank(rank, world_size):
         read_options = pv.ReadOptions(block_size=config["batch_size"])  # 50 MB chunks
         csv_reader = pv.open_csv(file, read_options=read_options)
         
-        results = []
+        results = {}
         for chunk in csv_reader:
             # create the dataset of the 50MB chunks - sampler - dataloader 
             dataset = GraphEdgeDataset(chunk)
-            sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank)
-            dataloader = DataLoader(dataset, batch_size=1024, sampler=sampler)
+            sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle = False)
+            dataloader = DataLoader(dataset, batch_size=1024, sampler=sampler, shuffle = False)
 
-            # each batch is approximately 12MB - 1024*1024 samples
+            # each batch is approximately 10KB - 1024 samples
             for batch in dataloader:
-                #batch=batch.to("cpu")
-                results.append(personalized_page_rank(batch))
+                batch = batch.t()
+                chosen_node, input1, all_nodes = get_node_of_interest(batch)
+                if chosen_node==None:
+                    continue
+                else :
+                    pagerank_results = personalized_page_rank(edge_index = input1, indices=[chosen_node])
+                result = result_format(all_nodes, chosen_node, pagerank_results)
+                results.update(result)
     """
     # calculate the average score in each machine
     avg_calinski_harabasz = np.mean(results)
