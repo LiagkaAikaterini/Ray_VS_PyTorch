@@ -1,7 +1,7 @@
 import os
 import time
 import torch
-from torch_ppr import personalized_page_rank
+from torch_ppr import personalized_page_rank, page_rank
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import torch.distributed as dist
 import pyarrow.fs as fs
@@ -89,6 +89,7 @@ def get_node_of_interest(chunk):
     mapped_nodes1 = [node_map[node] for node in nodes1]
     mapped_nodes2 = [node_map[node] for node in nodes2]
     
+    """
     # discard first and last nodes that may exist in other batches as well
     first_element = nodes1[0]
     last_element = nodes1[-1]
@@ -106,7 +107,8 @@ def get_node_of_interest(chunk):
         chosen_node_idx = node_map[chosen_node]
 
     return chosen_node_idx, torch.as_tensor(data= [mapped_nodes1, mapped_nodes2]), all_nodes
-
+    """
+    return torch.as_tensor(data = [mapped_nodes1, mapped_nodes2]), all_nodes
 
 def result_format(nodes_list, node, pagerank_scores):
     res_dict = {}
@@ -117,9 +119,27 @@ def result_format(nodes_list, node, pagerank_scores):
             continue
         res_dict[nodes_list[idx]] = score
         
-    return {node : res_dict}
+    #return {node : res_dict}
+    return res_dict
         
-    
+
+def aggregate_ppr_results(local_ppr_list):
+    global_ppr = {}
+    for local_ppr in local_ppr_list:
+        for node, ppr_score in local_ppr.items():
+            if node in global_ppr:
+                global_ppr[node] += ppr_score
+            else:
+                global_ppr[node] = ppr_score
+    return global_ppr
+
+def normalize_ppr(global_ppr):
+    total_score = sum(global_ppr.values())
+    for node in global_ppr:
+        global_ppr[node] /= total_score
+    return global_ppr
+
+ 
 def distributed_pagerank(rank, world_size):
     # Uncomment only the datafile you want to use
     #datafile = "test_data.csv"  # 10   MB
@@ -129,7 +149,7 @@ def distributed_pagerank(rank, world_size):
     
     config = {
         "datafile" : datafile,
-        "batch_size" : 1024 * 1024 ,  # 1MB chunks - Adjust as needed
+        "batch_size" : 1024 * 1024 * 50 ,  # 1MB chunks - Adjust as needed
         "hdfs_host" : '192.168.0.1',
         "hdfs_port" : 50000
     }
@@ -150,13 +170,35 @@ def distributed_pagerank(rank, world_size):
         read_options = pv.ReadOptions(block_size=config["batch_size"])  # 50 MB chunks
         csv_reader = pv.open_csv(file, read_options=read_options)
         
-        results = {}
+        #results = {}
+        results = []
+        ag = []
+        n = 0
         for chunk in csv_reader:
+            print("\n\nChunk")
             # create the dataset of the 50MB chunks - sampler - dataloader 
             dataset = GraphEdgeDataset(chunk)
             sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle = False)
-            dataloader = DataLoader(dataset, batch_size=1024, sampler=sampler, shuffle = False)
-
+            dataloader = DataLoader(dataset, batch_size=1024 * 1024, sampler=sampler, shuffle = False)
+            
+            for batch in dataloader:
+                print("Batch")
+                batch = batch.t()
+                input1, all_nodes = get_node_of_interest(batch)
+                pagerank_results = page_rank(edge_index = input1,)
+                result = result_format(all_nodes, pagerank_results)
+                results.append(result)
+                
+            if n == 5:
+                print("Relief")
+                tensor_local_ppr = aggregate_ppr_results(results)
+                results = []
+                n = 0
+                ag.append(tensor_local_ppr)
+    
+    tensor_local_ppr = aggregate_ppr_results(ag)
+    print(tensor_local_ppr[101])
+    """
             # each batch is approximately 10KB - 1024 samples
             for batch in dataloader:
                 batch = batch.t()
@@ -167,18 +209,6 @@ def distributed_pagerank(rank, world_size):
                     pagerank_results = personalized_page_rank(edge_index = input1, indices=[chosen_node])
                 result = result_format(all_nodes, chosen_node, pagerank_results)
                 results.update(result)
-    """
-    # calculate the average score in each machine
-    avg_calinski_harabasz = np.mean(results)
-    avg_calinski_harabasz_tensor = torch.tensor(avg_calinski_harabasz, dtype=torch.float32)
-
-    # Gather the averages from all the machines
-    gathered_results = [torch.tensor(0.0) for _ in range(world_size)]
-    dist.all_gather(gathered_results, avg_calinski_harabasz_tensor)
-    
-    # Calculate the total average calinski-harabasz score in master node
-    if rank == 0:
-        global_avg_calinski_harabasz = np.mean([t.item() for t in gathered_results])
     """
     # Record end time
     end_time = time.time()
