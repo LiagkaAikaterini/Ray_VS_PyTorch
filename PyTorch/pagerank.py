@@ -110,7 +110,11 @@ def get_node_of_interest(chunk):
     """
     return torch.as_tensor(data = [mapped_nodes1, mapped_nodes2]), all_nodes
 
+
+
+"""
 def result_format(nodes_list, node, pagerank_scores):
+    
     res_dict = {}
     scores = pagerank_scores.tolist()[0]
     
@@ -121,17 +125,41 @@ def result_format(nodes_list, node, pagerank_scores):
         
     #return {node : res_dict}
     return res_dict
+"""
+def result_format(nodes_list, pagerank_scores):
+    scores = pagerank_scores.tolist()
+    
+    correct_format = torch.as_tensor(data = [scores, nodes_list])
         
+    return correct_format
+       
 
 def aggregate_ppr_results(local_ppr_list):
     global_ppr = {}
-    for local_ppr in local_ppr_list:
-        for node, ppr_score in local_ppr.items():
+    for local_ppr_tensor in local_ppr_list:
+        
+        local_ppr = local_ppr_tensor.tolist()
+        nodes = local_ppr[1]
+        scores = local_ppr[0]
+        
+        for idx, node in enumerate(nodes):
             if node in global_ppr:
-                global_ppr[node] += ppr_score
+                global_ppr[node] += scores[idx]
             else:
-                global_ppr[node] = ppr_score
-    return global_ppr
+                global_ppr[node] = scores[idx]
+    
+    nodes = []
+    scores = []          
+    for key, value in global_ppr.items():
+        nodes.append(key)
+        scores.append(value)
+        
+    # Convert lists to tensors
+    scores_tensor = torch.tensor(scores, dtype=torch.float32)  # Assuming scores are floats
+    nodes_tensor = torch.tensor(nodes, dtype=torch.long)       # Assuming nodes are integers or can be encoded as such
+
+    return torch.stack([scores_tensor, nodes_tensor], dim=0)
+
 
 def normalize_ppr(global_ppr):
     total_score = sum(global_ppr.values())
@@ -172,8 +200,6 @@ def distributed_pagerank(rank, world_size):
         
         #results = {}
         results = []
-        ag = []
-        n = 0
         for chunk in csv_reader:
             print("\n\nChunk")
             # create the dataset of the 50MB chunks - sampler - dataloader 
@@ -185,31 +211,48 @@ def distributed_pagerank(rank, world_size):
                 print("Batch")
                 batch = batch.t()
                 input1, all_nodes = get_node_of_interest(batch)
-                pagerank_results = page_rank(edge_index = input1,)
+                pagerank_results = page_rank(edge_index = input1)
                 result = result_format(all_nodes, pagerank_results)
                 results.append(result)
-                
-            if n == 5:
-                print("Relief")
-                tensor_local_ppr = aggregate_ppr_results(results)
-                results = []
-                n = 0
-                ag.append(tensor_local_ppr)
+    #------------------------------------------------------------------------------------
+    tensor_local_ppr = aggregate_ppr_results(results)
+
+    # Get the size of the first dimension (number of nodes) for local tensor
+    local_size = torch.tensor([tensor_local_ppr.size(1)], dtype=torch.long)
+    size_list = [torch.tensor([0], dtype=torch.long) for _ in range(world_size)]
+    dist.all_gather(size_list, local_size)
+
+    # Find the maximum size
+    max_size = max([size.item() for size in size_list])
+
+    # Pad local tensors to max size (for scores and nodes separately)
+    if local_size.item() < max_size:
+        padding_size = max_size - local_size.item()
+        # Pad scores with zeros, keeping type float32
+        tensor_local_ppr = torch.cat([tensor_local_ppr, torch.zeros(1, padding_size, dtype=torch.float32)], dim=1)
+        # Pad nodes with a dummy value (e.g., -1), keeping type long
+        tensor_local_ppr = torch.cat([tensor_local_ppr, torch.full((1, padding_size), -1, dtype=torch.long)], dim=1)
+        
+    # Prepare list to gather all tensors
+    gather_list = [torch.zeros(2, max_size, dtype=torch.float32) for _ in range(world_size)]
+    dist.all_gather(gather_list, tensor_local_ppr)
+
+    # Separate scores and nodes
+    all_scores = torch.cat([t[0] for t in gather_list], dim=1)
+    all_nodes = torch.cat([t[1] for t in gather_list], dim=1)
+
+    # Filter out padding values (e.g., -1) from nodes
+    valid_mask = all_nodes != -1
+    filtered_scores = all_scores[:, valid_mask]
+    filtered_nodes = all_nodes[:, valid_mask]
+
+    # Create global ppr results
+    global_ppr = aggregate_ppr_results([(filtered_scores, filtered_nodes)])
+    ppr_scores = normalize_ppr(global_ppr)
+    #------------------------------------------------------------------------------------
+
     
-    tensor_local_ppr = aggregate_ppr_results(ag)
-    print(tensor_local_ppr[101])
-    """
-            # each batch is approximately 10KB - 1024 samples
-            for batch in dataloader:
-                batch = batch.t()
-                chosen_node, input1, all_nodes = get_node_of_interest(batch)
-                if chosen_node==None:
-                    continue
-                else :
-                    pagerank_results = personalized_page_rank(edge_index = input1, indices=[chosen_node])
-                result = result_format(all_nodes, chosen_node, pagerank_results)
-                results.update(result)
-    """
+    
     # Record end time
     end_time = time.time()
 
