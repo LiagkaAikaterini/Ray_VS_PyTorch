@@ -28,6 +28,11 @@ def display_results(config, start_time, end_time):
     file_name = f"{data_file}_{config['num_nodes']}nodes_results.txt"
     file_path = os.path.join(directory, file_name)
     
+    if not os.path.exists(directory):
+        # Create a new directory because it does not exist
+        os.makedirs(directory)
+
+    
     if os.path.exists(file_path):
         with open(file_path, 'a') as f:
             f.write(results_text)
