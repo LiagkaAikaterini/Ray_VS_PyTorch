@@ -39,7 +39,7 @@ def display_results(config, world_size, start_time, end_time, calinski_harabasz_
     results_text = (
         f"\nFor file {data_file} - number of worker machines {world_size} - batch size {config['batch_size']}: \n\n"
         f"Calinski-Harabasz Score: {calinski_harabasz_res}\n"
-        f"Time taken (Ray): {end_time - start_time} seconds\n"    
+        f"Time taken (PyTorch): {end_time - start_time} seconds\n"    
     )
     
     print(results_text)
@@ -49,6 +49,10 @@ def display_results(config, world_size, start_time, end_time, calinski_harabasz_
     file_name = f"{data_file}_{world_size}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
+    
+    # Create a new directory if it does not exist
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     
     # Write results to the custom text file
     if os.path.exists(file_path):

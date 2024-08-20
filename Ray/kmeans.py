@@ -33,6 +33,10 @@ def display_results(config, start_time, end_time, calinski_harabasz_res):
 
     file_path = os.path.join(directory, file_name)
     
+    # Create a new directory if it does not exist
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    
     # Write results to the custom text file
     if os.path.exists(file_path):
         with open(file_path, 'a') as f:
