@@ -68,8 +68,8 @@ def display_results(config, world_size, start_time, end_time, scores_dict):
 
     file_path = os.path.join(directory, file_name)
     
-    # Create a new directory if it does not exist
     if not os.path.exists(directory):
+        # Create a new directory if it does not exist
         os.makedirs(directory)
 
     
@@ -135,7 +135,6 @@ def aggregate_pr_results(global_pr_dict, new_pr_dict):
             
     return global_pr_dict
 
-# get the N higher scores from scores dictionary
 def top_scores(N, scores_dict):
     res = sorted(scores_dict.items(), key=lambda item: item[1], reverse=True)[:N]
     top_N_scores = dict(res)
@@ -176,8 +175,8 @@ def distributed_pagerank(rank, world_size):
     # Uncomment only the datafile you want to use
     #datafile = "test_data.csv"  # 10   MB
     #datafile = "data_1.csv"     # 1    GB
-    datafile = "data_2.csv"     # 2.6  GB
-    #datafile = "data.csv"       # 10.5 GB
+    #datafile = "data_2.csv"     # 2.6  GB
+    datafile = "data.csv"       # 10.5 GB
 
     config = {
         "datafile" : datafile,
