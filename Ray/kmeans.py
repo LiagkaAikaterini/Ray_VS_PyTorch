@@ -82,8 +82,14 @@ def distributed_kmeans(config):
 
 
 def main():
+    # Record start time
+    start_time = time.time()
+    
     # Initialize Ray
     ray.init(address='auto')
+    
+    # time for system initialization
+    end_time_system = time.time()
     
     # Uncomment only the datafile you want to use
     #datafile = "test_data.csv"  # 10   MB
@@ -100,9 +106,6 @@ def main():
         "batch_size" : 1024 * 1024 * 50  # 50 MB chunks - Adjust as needed
     }
 
-    # Record start time
-    start_time = time.time()
-    
     # Perform the distributed kmeans
     res_score = distributed_kmeans(config)
  

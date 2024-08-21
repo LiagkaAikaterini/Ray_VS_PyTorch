@@ -133,19 +133,17 @@ def get_num_nodes():
     return sum(1 for node in nodes if node['Alive'])
 
 
-# Display and save the results
+# Save the results in a custom file
 def display_results(config, start_time, end_time, result_text):
     
     results_text = (
-        f"\nPneumonia Classification - Number of worker machines {config['num_nodes']} : \n\n"
+        f"\nPneumonia Classification - Number of worker machines {config['world_size']} : \n\n"
         f"Time taken (Ray): {end_time - start_time} seconds\n"    
     ) + result_text
     
-    print(results_text)
-
     # Create custom file name in results directory, in order to save results for different number of machines
     directory = os.path.expanduser('~/ray/pneumonia_classification/res')
-    file_name = f"{config['num_nodes']}nodes_results.txt"
+    file_name = f"{config['world_size']}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
     
@@ -161,10 +159,10 @@ def display_results(config, start_time, end_time, result_text):
         with open(file_path, 'w') as f:
             f.write(results_text)
 
-def train(trainloader, optimizer, model, criterion, world_size):
+def train(trainloader, optimizer, model, criterion):
+    model.train()
     running_loss = 0
     for images, labels in trainloader:
-        
         '''
         #Changing images to cuda for gpu
         if torch.cuda.is_available():
@@ -188,18 +186,16 @@ def train(trainloader, optimizer, model, criterion, world_size):
         
         running_loss += loss.item()
     
-    # Print running loss on each machine
-    print(f"Machine {ray.get_runtime_context().node_id}: Epoch running loss: {running_loss}")
-    
     return running_loss
-            
+
+ 
 def test(testloader, device, model):
     model.eval()  # Set model to evaluation mode
     correct_count, all_count = 0, 0
     for images,labels in testloader:
         for i in range(len(labels)):
             images, labels = images.to(device), labels.to(device)
-            
+
             '''
             if torch.cuda.is_available():
                 images = images.cuda()
@@ -239,7 +235,7 @@ def distributed_classification(config):
     
     trainloader = ray.train.torch.prepare_data_loader(trainloader)
     testloader = ray.train.torch.prepare_data_loader(testloader)
-    
+
     images, labels = next(iter(trainloader))
 
     result_text += f'Images Shape : {images.shape}\n'
@@ -264,7 +260,7 @@ def distributed_classification(config):
     
     # Model initialization
     model = classify().to(device)
-    model = DDP(model)
+    model = ray.train.torch.prepare_model(model)
     # for gpu
     #model = DDP(model, device_ids=[rank])
     
@@ -280,29 +276,48 @@ def distributed_classification(config):
         model = model.cuda()
         criterion = criterion.cuda()
     '''    
-    
     # Train  
     for i in range(config['epochs']):
-        avg_running_loss = train(trainloader, optimizer, model, criterion, config['world_size'])
+        if config['world_size'] > 1:
+            trainloader.sampler.set_epoch(i+1)
         
-        print(avg_running_loss)
+        running_loss = train(trainloader, optimizer, model, criterion)
+        
+        # Reduce running loss across all processes
+        gathered_running_loss = torch.tensor(running_loss, dtype=torch.float64)
+        dist.all_reduce(gathered_running_loss, op=dist.ReduceOp.SUM)
+        
+        # get the average running loss accross all the machines
+        gathered_running_loss /= config['world_size']
+        avg_running_loss = gathered_running_loss.item()
+        
+        # report so i can see as its running in each epoch
+        ray.train.report({'epoch': i+1, 'loss': avg_running_loss/len(trainloader)}, checkpoint=None)
+        
         # add to result_text 
         result_text += f'Epoch {i+1} - Training loss: {avg_running_loss/len(trainloader)}\n'
-        
-        print(f'Epoch {i+1} - Training loss: {avg_running_loss/len(trainloader)}')
-        
-            
-            
+           
+       
     # Test
     all_count, correct_count = test(testloader, device, model)
     
-    # add to result_text
-    result_text += f'Number Of Images Tested = {all_count} \n'
-    result_text += f'\nModel Accuracy = {correct_count/all_count} \n\n'
-        
-    # Report metrics and checkpoint.
-    ray.train.report({"result_text": result_text}, checkpoint=None)  
-
+    # Gather the test results
+    gathered_all_count = torch.tensor(all_count, dtype=torch.int64)
+    gathered_correct_count = torch.tensor(correct_count, dtype=torch.int64)
+    dist.all_reduce(gathered_all_count, op=dist.ReduceOp.SUM)
+    dist.all_reduce(gathered_correct_count, op=dist.ReduceOp.SUM)
+    
+    # report test accuracy
+    ray.train.report({'accuracy' : gathered_correct_count.item()/gathered_all_count.item()}, checkpoint=None)
+    
+    # add to result text
+    result_text += f'Number Of Images Tested = {gathered_all_count.item()} \n'
+    result_text += f'\nModel Accuracy = {gathered_correct_count.item()/gathered_all_count.item()} \n\n'
+    
+    
+    # final report which will be used to save results in a custom txt file
+    ray.train.report({'result_text' : result_text}, checkpoint=None)
+    
             
 def main():
     # Record start time
@@ -322,19 +337,25 @@ def main():
         'world_size' : get_num_nodes()
     }
     # Workers with a CPU
-    scaling_config = ScalingConfig(num_workers = config['num_nodes'], use_gpu = False)
+    scaling_config = ScalingConfig(
+        num_workers = config['world_size'], 
+        use_gpu = False, 
+        resources_per_worker = {'CPU': 3},
+        # Try to schedule workers on different nodes.
+        placement_strategy="SPREAD"
+    )
     
     # Create Ray's Torch Trainer
     trainer = TorchTrainer(
         train_loop_per_worker = distributed_classification, 
         train_loop_config  = config,
-        scaling_config = scaling_config
+        scaling_config = scaling_config,
     )
-    # Train the model
+    # Train - Test the model
     result = trainer.fit()
 
     # Get the results
-    result_text = result.metrics["result_text"]
+    result_text = result.metrics['result_text']
     
     # Record end time
     end_time = time.time()

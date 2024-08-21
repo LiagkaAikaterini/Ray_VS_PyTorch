@@ -161,7 +161,7 @@ def display_results(world_size, start_time, end_time, result_text):
         with open(file_path, 'w') as f:
             f.write(results_text)
 
-def train(trainloader, optimizer, model, criterion, world_size):
+def train(trainloader, optimizer, model, criterion):
     running_loss = 0
     for images, labels in trainloader:
         
@@ -294,7 +294,7 @@ def distributed_classification(rank, world_size, config):
     for i in range(config['epochs']):
         trainsampler.set_epoch(i+1)
         
-        running_loss = train(trainloader, optimizer, model, criterion, world_size)
+        running_loss = train(trainloader, optimizer, model, criterion)
         
         # Reduce running loss across all processes
         gathered_running_loss = torch.tensor(running_loss, dtype=torch.float64)
