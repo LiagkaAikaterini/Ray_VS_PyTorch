@@ -33,13 +33,14 @@ def cleanup():
 
 
 # Display and save the results
-def display_results(config, world_size, start_time, end_time, calinski_harabasz_res):
+def display_results(config, world_size, start_time, end_time, end_time_system, calinski_harabasz_res):
     data_file = config["datafile"].split('.')[0]    # keep only data file name
     
     results_text = (
         f"\nFor file {data_file} - number of worker machines {world_size} - batch size {config['batch_size']}: \n\n"
         f"Calinski-Harabasz Score: {calinski_harabasz_res}\n"
-        f"Time taken (PyTorch): {end_time - start_time} seconds\n"    
+        f"Time taken (PyTorch): {end_time - start_time} seconds\n" 
+        f"Time taken for system to initialize (PyTorch): {end_time_system - start_time} seconds\n"  
     )
     
     print(results_text)
@@ -96,6 +97,9 @@ def distributed_kmeans(rank, world_size):
     # with the number of machines that is defined from the torchrun command
     setup(rank, world_size)
     
+    # Record time for system setup
+    end_time_system = time.time()
+    
     # Connect to HDFS using PyArrow's FileSystem
     hdfs = fs.HadoopFileSystem(host=config["hdfs_host"], port=config["hdfs_port"])
     file_to_read = f'/data/{config["datafile"]}'
@@ -113,7 +117,7 @@ def distributed_kmeans(rank, world_size):
             dataset = GraphEdgeDataset(new_chunk)
             sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank)
             dataloader = DataLoader(dataset, batch_size=1024 * 1024, sampler=sampler)
-
+            
             # each batch is approximately 12MB - 1024*1024 samples
             for batch in dataloader:
                 #batch=batch.to("cpu")
@@ -136,7 +140,7 @@ def distributed_kmeans(rank, world_size):
 
     # Display the results after the time recording has ended in master node only
     if rank == 0:
-        display_results(config, world_size, start_time, end_time, global_avg_calinski_harabasz)
+        display_results(config, world_size, start_time, end_time, end_time_system, global_avg_calinski_harabasz)
 
     # Destroy the distributed system group
     cleanup()
