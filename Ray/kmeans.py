@@ -16,13 +16,14 @@ def get_num_nodes():
 
 
 # Display and save the results
-def display_results(config, start_time, end_time, calinski_harabasz_res):
+def display_results(config, start_time, end_time, end_time_system, calinski_harabasz_res):
     data_file = config["datafile"].split('.')[0]    # keep only data file name
     
     results_text = (
         f"\nFor file {data_file} - number of worker machines {config['num_nodes']} - batch size {config['batch_size']}: \n\n"
         f"Calinski-Harabasz Score: {calinski_harabasz_res}\n"
-        f"Time taken (Ray): {end_time - start_time} seconds\n"    
+        f"Time taken (Ray): {end_time - start_time} seconds\n"  
+        f"Time taken for system to initialize (Ray): {end_time_system - start_time} seconds\n"    
     )
     
     print(results_text)
@@ -65,6 +66,7 @@ def distributed_kmeans(config):
     hdfs_host = '192.168.0.1'
     hdfs_port = 50000
 
+    
     # Connect to HDFS using PyArrow's FileSystem
     hdfs = fs.HadoopFileSystem(host=hdfs_host, port=hdfs_port)
     file_to_read = f'/data/{config["datafile"]}'
@@ -88,7 +90,7 @@ def main():
     # Initialize Ray
     ray.init(address='auto')
     
-    # time for system initialization
+    # Record time for system initialization
     end_time_system = time.time()
     
     # Uncomment only the datafile you want to use
@@ -103,7 +105,7 @@ def main():
         "n_clusters": 16,
         "num_nodes" : get_num_nodes(),
         "cpus_per_node" : 4,
-        "batch_size" : 1024 * 1024 * 50  # 50 MB chunks - Adjust as needed
+        "batch_size" : 1024 * 1024 * 20  # 20 MB chunks - Adjust as needed
     }
 
     # Perform the distributed kmeans
@@ -113,7 +115,7 @@ def main():
     end_time = time.time()
 
     # save the results
-    display_results(config, start_time, end_time, res_score)
+    display_results(config, start_time, end_time, end_time_system, res_score)
 
     # Shutdown Ray
     ray.shutdown()
