@@ -26,7 +26,7 @@ def display_results(config, start_time, end_time, scores_dict):
     print(results_text)
     
     # Create custom file name in results directory, in order to save results for different data sizes and number of machines
-    directory = os.path.expanduser('~/ray/pagerank/res')
+    directory = os.path.expanduser('~/Ray/pagerank/res')
     file_name = f"{data_file}_{config['num_nodes']}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
@@ -91,7 +91,7 @@ def top_scores(N, scores_dict):
 
 # saves the intermediate dictionary results in files in order to relief memory
 def save_intermediate_results(intermediate_result, filename):
-    directory = os.path.expanduser('~/ray/pagerank/intermediate_results')
+    directory = os.path.expanduser('~/Ray/pagerank/intermediate_results')
     if not os.path.exists(directory):
         os.makedirs(directory)
     file_path = os.path.join(directory, filename)
@@ -103,7 +103,7 @@ def save_intermediate_results(intermediate_result, filename):
 # loads all the intermediate dictionaries in one dictionary to get the real, aggregated result
 def load_intermediate_results():
     top_aggregated_result = {}
-    directory = os.path.expanduser('~/ray/pagerank/intermediate_results')
+    directory = os.path.expanduser('~/Ray/pagerank/intermediate_results')
 
     for filename in os.listdir(directory):
         if filename.endswith(".json"):
@@ -136,7 +136,7 @@ def normalize_pr(scores_dict):
 
 # Deletes all the files used to save the intermediate results
 def cleanup():
-    directory =  os.path.expanduser('~/ray/pagerank/intermediate_results')
+    directory =  os.path.expanduser('~/Ray/pagerank/intermediate_results')
     if os.path.exists(directory):
         # List all files in the directory
         for filename in os.listdir(directory):
@@ -167,9 +167,9 @@ def distributed_pagerank(config):
        
         futures = []
         global_pr = {}
-        for i, chunk in enumerate(csv_reader):
+        for i, batch in enumerate(csv_reader):
             print("\n\nChunk", i)
-            futures.append(pagerank.remote(chunk))
+            futures.append(pagerank.remote(batch))
             # every ten futures execute the distributed calculations
             if i % 10 == 0:
                 batch_results = [ray.get(f) for f in futures]

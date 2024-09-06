@@ -29,7 +29,7 @@ def display_results(config, start_time, end_time, end_time_system, calinski_hara
     print(results_text)
 
     # Create custom file name in results directory, in order to save results for different data sizes and number of machines
-    directory = os.path.expanduser('~/ray/kmeans/res')
+    directory = os.path.expanduser('~/Ray/kmeans/res')
     file_name = f"{data_file}_{config['num_nodes']}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)

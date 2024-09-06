@@ -46,7 +46,7 @@ def display_results(config, world_size, start_time, end_time, end_time_system, c
     print(results_text)
 
     # Create custom file name in results directory, in order to save results for different data sizes and number of machines
-    directory = os.path.expanduser('~/pytorch/kmeans/res')
+    directory = os.path.expanduser('~/PyTorch/kmeans/res')
     file_name = f"{data_file}_{world_size}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)

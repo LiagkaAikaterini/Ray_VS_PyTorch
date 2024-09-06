@@ -1,7 +1,3 @@
-import ray
-import ray.train
-from ray.train.torch import TorchTrainer
-import ray.train.torch
 import torch
 import os
 import io
@@ -14,14 +10,24 @@ import pyarrow.fs as fs
 import time
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from PIL import Image
-from ray.train import ScalingConfig
 
 TEST = 'test'
 TRAIN = 'train'
 VAL ='val'
 
+def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = '192.168.0.1'
+    os.environ['MASTER_PORT'] = '12345'
+
+    # initialize the process group - gloo == cpu not gpu
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+
+def cleanup():
+    dist.destroy_process_group()
+
+
 class customDataset(Dataset):
-    def __init__(self, config,  data_dir, transform=None):
+    def __init__(self, config, data_dir, transform=None):
         self.hdfs = fs.HadoopFileSystem(host=config['hdfs_host'], port=config['hdfs_port'])
         self.data_dir = data_dir
         self.transform = transform
@@ -126,24 +132,20 @@ def data_transforms(phase = None):
         
     return data_T
     
-    
-# Function to determine the number of active nodes in ray
-def get_num_nodes():
-    nodes = ray.nodes()
-    return sum(1 for node in nodes if node['Alive'])
 
-
-# Save the results in a custom file
-def display_results(config, start_time, end_time, result_text):
+# Display and save the results
+def display_results(world_size, start_time, end_time, result_text):
     
     results_text = (
-        f"\nPneumonia Classification - Number of worker machines {config['world_size']} : \n\n"
-        f"Time taken (Ray): {end_time - start_time} seconds\n"    
+        f"\nPneumonia Classification - Number of worker machines {world_size} : \n\n"
+        f"Time taken (PyTorch): {end_time - start_time} seconds\n"    
     ) + result_text
     
+    print(results_text)
+
     # Create custom file name in results directory, in order to save results for different number of machines
-    directory = os.path.expanduser('~/ray/pneumonia_classification/res')
-    file_name = f"{config['world_size']}nodes_results.txt"
+    directory = os.path.expanduser('~/PyTorch/pneumonia_classification/res')
+    file_name = f"{world_size}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
     
@@ -163,6 +165,7 @@ def train(trainloader, optimizer, model, criterion):
     model.train()
     running_loss = 0
     for images, labels in trainloader:
+        
         '''
         #Changing images to cuda for gpu
         if torch.cuda.is_available():
@@ -187,20 +190,20 @@ def train(trainloader, optimizer, model, criterion):
         running_loss += loss.item()
     
     return running_loss
-
- 
+    
+            
 def test(testloader, device, model):
     model.eval()  # Set model to evaluation mode
     correct_count, all_count = 0, 0
     for images,labels in testloader:
         for i in range(len(labels)):
-            images, labels = images.to(device), labels.to(device)
-
             '''
             if torch.cuda.is_available():
                 images = images.cuda()
                 labels = labels.cuda()
             '''
+            
+            images, labels = images.to(device), labels.to(device)
             
             img = images[i].view(1, 3, 224, 224)
             with torch.no_grad():
@@ -217,7 +220,14 @@ def test(testloader, device, model):
     return all_count, correct_count
 
 
-def distributed_classification(config):
+def distributed_classification(rank, world_size, config):    
+    # Record start time
+    start_time = time.time()
+    
+    # Create the distributed system group
+    # with the number of machines that is defined from the torchrun command
+    setup(rank, world_size)
+    
     result_text = ""
 
     trainset = customDataset(config = config, data_dir = os.path.join(config['data_dir'], TRAIN), transform = data_transforms(TRAIN))
@@ -228,19 +238,23 @@ def distributed_classification(config):
     class_names = trainset.classes
     result_text += f'\nClass Names : {class_names}\n'
     result_text += f'Class to index : {trainset.class_to_idx}\n\n'
-
-    trainloader = DataLoader(trainset, batch_size = config['batch_size'], shuffle = True)
-    validloader = DataLoader(validset, batch_size = config['batch_size'], shuffle = True)
-    testloader = DataLoader(testset, batch_size = config['batch_size'], shuffle = True)
     
-    trainloader = ray.train.torch.prepare_data_loader(trainloader)
-    testloader = ray.train.torch.prepare_data_loader(testloader)
+    
+    trainsampler = DistributedSampler(trainset, num_replicas = world_size, rank = rank, shuffle = True)
+    testsampler = DistributedSampler(testset, num_replicas = world_size, rank = rank, shuffle = True)
+    validsampler = DistributedSampler(validset, num_replicas = world_size, rank = rank, shuffle = True)
 
+
+    trainloader = DataLoader(trainset, batch_size = config['batch_size'], sampler = trainsampler)
+    validloader = DataLoader(validset, batch_size = config['batch_size'], sampler = validsampler)
+    testloader = DataLoader(testset, batch_size = config['batch_size'], sampler = testsampler)
+
+    
     images, labels = next(iter(trainloader))
 
     result_text += f'Images Shape : {images.shape}\n'
     result_text += f'Labels Shape : {labels.shape}\n\n'
-    
+
     '''
     for i, (images,labels) in enumerate(trainloader):
         if torch.cuda.is_available():
@@ -260,7 +274,7 @@ def distributed_classification(config):
     
     # Model initialization
     model = classify().to(device)
-    model = ray.train.torch.prepare_model(model)
+    model = DDP(model)
     # for gpu
     #model = DDP(model, device_ids=[rank])
     
@@ -276,10 +290,10 @@ def distributed_classification(config):
         model = model.cuda()
         criterion = criterion.cuda()
     '''    
+    
     # Train  
     for i in range(config['epochs']):
-        if config['world_size'] > 1:
-            trainloader.sampler.set_epoch(i+1)
+        trainsampler.set_epoch(i+1)
         
         running_loss = train(trainloader, optimizer, model, criterion)
         
@@ -287,84 +301,57 @@ def distributed_classification(config):
         gathered_running_loss = torch.tensor(running_loss, dtype=torch.float64)
         dist.all_reduce(gathered_running_loss, op=dist.ReduceOp.SUM)
         
-        # get the average running loss accross all the machines
-        gathered_running_loss /= config['world_size']
+        # get the average running loss across all the machines
+        gathered_running_loss /= world_size
         avg_running_loss = gathered_running_loss.item()
         
-        # report so i can see as its running in each epoch
-        ray.train.report({'epoch': i+1, 'loss': avg_running_loss/len(trainloader)}, checkpoint=None)
+        # add to result_text only in master machine
+        if rank == 0:
+            result_text += f'Epoch {i+1} - Training loss: {avg_running_loss/len(trainloader)}\n'
+            print(f'Epoch {i+1} - Training loss: {avg_running_loss/len(trainloader)}')
         
-        # add to result_text 
-        result_text += f'Epoch {i+1} - Training loss: {avg_running_loss/len(trainloader)}\n'
-           
-       
+            
+            
     # Test
     all_count, correct_count = test(testloader, device, model)
-    
-    # Gather the test results
+
+    # Gather the results
     gathered_all_count = torch.tensor(all_count, dtype=torch.int64)
     gathered_correct_count = torch.tensor(correct_count, dtype=torch.int64)
     dist.all_reduce(gathered_all_count, op=dist.ReduceOp.SUM)
     dist.all_reduce(gathered_correct_count, op=dist.ReduceOp.SUM)
     
-    # report test accuracy
-    ray.train.report({'accuracy' : gathered_correct_count.item()/gathered_all_count.item()}, checkpoint=None)
-    
-    # add to result text
-    result_text += f'Number Of Images Tested = {gathered_all_count.item()} \n'
-    result_text += f'\nModel Accuracy = {gathered_correct_count.item()/gathered_all_count.item()} \n\n'
-    
-    
-    # final report which will be used to save results in a custom txt file
-    ray.train.report({'result_text' : result_text}, checkpoint=None)
-    
+    # add to result_text only in master machine
+    if rank == 0 :
+        result_text += f'Number Of Images Tested = {gathered_all_count} \n'
+        result_text += f'\nModel Accuracy = {gathered_correct_count/gathered_all_count} \n\n'
+        
+    # Record end time
+    end_time = time.time()
+
+    # Display the results after the time recording has ended in master node only
+    if rank == 0:
+        display_results(world_size, start_time, end_time, result_text)
+
+    # Destroy the distributed system group
+    cleanup()
+
             
 def main():
-    # Record start time
-    start_time = time.time()
     
-    # Initialize Ray
-    ray.init(address='auto')
-    
-    # config of my training function
     config = {
         'hdfs_host' : '192.168.0.1',
         'hdfs_port' : 50000,
         'lr': 0.01, 
         'batch_size': 64, 
         'epochs': 10,
-        'data_dir' : "/data/chest_xray",
-        'world_size' : get_num_nodes()
+        'data_dir' : "/data/chest_xray"
     }
-    # Workers with a CPU
-    scaling_config = ScalingConfig(
-        num_workers = config['world_size'], 
-        use_gpu = False, 
-        resources_per_worker = {'CPU': 3},
-        # Try to schedule workers on different nodes.
-        placement_strategy="SPREAD"
-    )
     
-    # Create Ray's Torch Trainer
-    trainer = TorchTrainer(
-        train_loop_per_worker = distributed_classification, 
-        train_loop_config  = config,
-        scaling_config = scaling_config,
-    )
-    # Train - Test the model
-    result = trainer.fit()
-
-    # Get the results
-    result_text = result.metrics['result_text']
+    rank = int(os.getenv('RANK'))
+    world_size = int(os.getenv('WORLD_SIZE'))
     
-    # Record end time
-    end_time = time.time()
-    
-    # save and print the results
-    display_results(config, start_time, end_time, result_text)
-
-    # Shutdown Ray
-    ray.shutdown()
+    distributed_classification(rank, world_size, config)
 
 if __name__ == "__main__":
     main()

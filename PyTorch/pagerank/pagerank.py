@@ -39,7 +39,7 @@ def setup(rank, world_size):
 
 def cleanup():
     # Make sure all the files used to save the intermediate results are deleted during the cleanup
-    directory =  os.path.expanduser('~/pytorch/pagerank/intermediate_results')
+    directory =  os.path.expanduser('~/PyTorch/pagerank/intermediate_results')
     if os.path.exists(directory):
         # List all files in the directory
         for filename in os.listdir(directory):
@@ -63,7 +63,7 @@ def display_results(config, world_size, start_time, end_time, scores_dict):
     print(results_text)
     
     # Create custom file name in results directory, in order to save results for different data sizes and number of machines
-    directory = os.path.expanduser('~/pytorch/pagerank/res')
+    directory = os.path.expanduser('~/PyTorch/pagerank/res')
     file_name = f"{data_file}_{world_size}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
@@ -143,7 +143,7 @@ def top_scores(N, scores_dict):
 
 # save the intermediate dictionary results in files in order to relief memory
 def save_intermediate_results(intermediate_result, filename):
-    directory = os.path.expanduser('~/pytorch/pagerank/intermediate_results')
+    directory = os.path.expanduser('~/PyTorch/pagerank/intermediate_results')
     if not os.path.exists(directory):
         os.makedirs(directory)
     file_path = os.path.join(directory, filename)
@@ -155,7 +155,7 @@ def save_intermediate_results(intermediate_result, filename):
 # load all the intermediate dictionaries in one dictionary to get the real, aggregated result
 def load_intermediate_results(rank, world_size):
     top_aggregated_result = {}
-    directory = os.path.expanduser('~/pytorch/pagerank/intermediate_results')
+    directory = os.path.expanduser('~/PyTorch/pagerank/intermediate_results')
 
     for filename in os.listdir(directory):
         if filename.endswith(".json"):
