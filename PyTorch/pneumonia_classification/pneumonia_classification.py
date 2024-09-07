@@ -1,14 +1,14 @@
-import torch
 import os
 import io
+import time
+import torch
 from torch import nn,optim
 from torchvision import transforms as T
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch import nn, optim
 import torch.distributed as dist
-import pyarrow.fs as fs
-import time
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
+import pyarrow.fs as fs
 from PIL import Image
 
 TEST = 'test'
@@ -41,14 +41,17 @@ class customDataset(Dataset):
         # List all files and directories in the directory
         file_infos = self.hdfs.get_file_info(fs.FileSelector(self.data_dir, recursive=True))
 
+        # add files (images) to the file_list and the directories in the classes
         for file_info in file_infos:
             if file_info.type == fs.FileType.File:
                 file_list.append(file_info.path)
             elif file_info.type == fs.FileType.Directory:
                 classes.append(os.path.basename(file_info.path))
-
+        
+        # attribute a unique int label to each class
         classes.sort()
         class_to_idx = {cls: idx for idx, cls in enumerate(classes)}
+        
         return file_list, classes, class_to_idx
 
     def __len__(self):
@@ -90,7 +93,7 @@ class classify(nn.Module):
         self.relu3=nn.ReLU()
         self.fc=nn.Linear(in_features=32 * 112 * 112,out_features=num_classes)
         
-       #Feed forwad function
+       #Feed forward function
         
     def forward(self,input):
         output=self.conv1(input)
@@ -161,8 +164,9 @@ def display_results(world_size, start_time, end_time, result_text):
         with open(file_path, 'w') as f:
             f.write(results_text)
 
+
 def train(trainloader, optimizer, model, criterion):
-    model.train()
+    model.train()   # Set model to training mode
     running_loss = 0
     for images, labels in trainloader:
         
@@ -230,11 +234,13 @@ def distributed_classification(rank, world_size, config):
     
     result_text = ""
 
+    # create the datasets - samplers - dataloaders
     trainset = customDataset(config = config, data_dir = os.path.join(config['data_dir'], TRAIN), transform = data_transforms(TRAIN))
     testset = customDataset(config = config, data_dir = os.path.join(config['data_dir'], TEST), transform = data_transforms(TEST))
     validset = customDataset(config = config, data_dir = os.path.join(config['data_dir'], VAL), transform = data_transforms(VAL))
     
     
+    # get info for the results
     class_names = trainset.classes
     result_text += f'\nClass Names : {class_names}\n'
     result_text += f'Class to index : {trainset.class_to_idx}\n\n'
@@ -249,7 +255,7 @@ def distributed_classification(rank, world_size, config):
     validloader = DataLoader(validset, batch_size = config['batch_size'], sampler = validsampler)
     testloader = DataLoader(testset, batch_size = config['batch_size'], sampler = testsampler)
 
-    
+    # get info for the results
     images, labels = next(iter(trainloader))
 
     result_text += f'Images Shape : {images.shape}\n'
@@ -293,6 +299,7 @@ def distributed_classification(rank, world_size, config):
     
     # Train  
     for i in range(config['epochs']):
+        # set epoch to the sampler for synchronization in all the nodes
         trainsampler.set_epoch(i+1)
         
         running_loss = train(trainloader, optimizer, model, criterion)
@@ -329,7 +336,7 @@ def distributed_classification(rank, world_size, config):
     # Record end time
     end_time = time.time()
 
-    # Display the results after the time recording has ended in master node only
+    # Display the results after the time recording has ended only in the master node
     if rank == 0:
         display_results(world_size, start_time, end_time, result_text)
 
@@ -352,6 +359,7 @@ def main():
     world_size = int(os.getenv('WORLD_SIZE'))
     
     distributed_classification(rank, world_size, config)
+
 
 if __name__ == "__main__":
     main()

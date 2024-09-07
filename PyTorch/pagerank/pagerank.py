@@ -1,13 +1,13 @@
 import json
 import os
 import time
+import gc
 import torch
 from torch_ppr import page_rank
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import torch.distributed as dist
 import pyarrow.fs as fs
 import pyarrow.csv as pv
-import gc
 
 
 class GraphEdgeDataset(Dataset):
@@ -125,7 +125,7 @@ def normalize_pr(scores):
     return normalized_scores
 
 
-# add dictionary to existing score dictionary
+# add new dictionary to existing score dictionary
 def aggregate_pr_results(global_pr_dict, new_pr_dict):
     for node, score in new_pr_dict.items():
         if node in global_pr_dict:
@@ -135,11 +135,14 @@ def aggregate_pr_results(global_pr_dict, new_pr_dict):
             
     return global_pr_dict
 
+
+# get the top N values from a dictionary
 def top_scores(N, scores_dict):
     res = sorted(scores_dict.items(), key=lambda item: item[1], reverse=True)[:N]
     top_N_scores = dict(res)
     
     return top_N_scores
+
 
 # save the intermediate dictionary results in files in order to relief memory
 def save_intermediate_results(intermediate_result, filename):
@@ -203,32 +206,34 @@ def distributed_pagerank(rank, world_size):
         csv_reader = pv.open_csv(file, read_options=read_options)
 
         for i, chunk in enumerate(csv_reader):
-            print("\n\nChunk", i)
             # create the dataset of the 50MB chunks - sampler - dataloader
             dataset = GraphEdgeDataset(chunk)
             sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle = False)
             dataloader = DataLoader(dataset, batch_size=1024 * 1024, sampler=sampler, shuffle = False)
 
             for batch in dataloader:
-                print("Batch")
+                # fix the input data to the right format for torch_ppr page_rank 
                 batch = batch.t()
                 pr_input, nodes = input_format(batch)
+                # perform page_rank and manage scores
                 pagerank_results = page_rank(edge_index = pr_input)
                 scores = pagerank_results.tolist()
                 global_pr = add_to_dict(global_pr, scores, nodes)
 
-            # every 10 chunks save result dictionary to relief memory
+            # every 10 chunks save the result dictionary to relief memory
             if i % 10 == 0:
                 save_intermediate_results(global_pr, f"result_chunk_{i}.json")
                 # Clear current results to free memory
                 global_pr = {}
                 gc.collect()
     
+    # make sure the last batchs' results are calculated (even if i % 10 != 0)
     if global_pr != {} :
         save_intermediate_results(global_pr, f"result_chunk_last.json")
 
     gc.collect()
     
+    # load all the results and turn them into lists to be more manageable
     final_aggregated_result = load_intermediate_results(rank, world_size)
 
     nodes = []
@@ -238,6 +243,8 @@ def distributed_pagerank(rank, world_size):
         scores.append(value)
 
     gc.collect()
+    
+    # Result aggregation 
     
     # Convert lists to tensors
     scores_tensor = torch.tensor(scores, dtype=torch.float32)
@@ -258,7 +265,7 @@ def distributed_pagerank(rank, world_size):
         padding_size = max_size - local_size.item()
         # Pad scores with zeros, keeping type float32
         padded_scores = torch.cat([tensor_local_pr[0], torch.zeros(padding_size, dtype=torch.float32)], dim=0)
-        # Pad nodes with a dummy value (-1), keeping type int
+        # Pad nodes with a dummy value (-1), keeping type int32
         padded_nodes = torch.cat([tensor_local_pr[1], torch.full((padding_size,), -1, dtype=torch.int32)], dim=0)
 
         tensor_local_pr = torch.stack([padded_scores, padded_nodes], dim=0)
@@ -280,7 +287,7 @@ def distributed_pagerank(rank, world_size):
         filtered_nodes = all_nodes[valid_nodes_mask]
         filtered_scores = all_scores[valid_scores_mask]
 
-        # gather results in one dictionary - add scores for same node
+        # gather results in one dictionary - add the scores for the same node
         global_pr = {}
         global_pr = add_to_dict(global_pr, filtered_scores.tolist(), filtered_nodes.tolist())
         top_global_pr = top_scores(10000, global_pr)
@@ -293,10 +300,11 @@ def distributed_pagerank(rank, world_size):
             scores.append(value)
             
         scores_tensor = torch.tensor(scores, dtype=torch.float32)
+        
         # normalize the gathered final results 
         pr_scores = normalize_pr(scores_tensor)
         
-        # get the 10 most significant nodes to display in the results
+        # retrieve the 10 most significant (highest ranking) nodes to display in the results
         res = pr_scores.argsort(dim = 0, descending=True)[:10]
         result_scores = {}
         for i in res:
@@ -305,7 +313,7 @@ def distributed_pagerank(rank, world_size):
     # Record end time
     end_time = time.time()
 
-    # Display the results after the time recording has ended in master node only
+    # Display the results after the time recording has ended only in the master node 
     if rank == 0:
         display_results(config, world_size, start_time, end_time, result_scores)
 
@@ -318,6 +326,7 @@ def main():
     world_size = int(os.getenv('WORLD_SIZE'))
 
     distributed_pagerank(rank, world_size)
+
 
 if __name__ == "__main__":
     main()

@@ -1,17 +1,19 @@
 import os
+import json
+import gc
 import time
+import ray
 import torch
 from torch_ppr import page_rank
 import pyarrow.fs as fs
 import pyarrow.csv as pv
-import ray
-import json
-import gc
+
 
 # Function to determine the number of active nodes in ray
 def get_num_nodes():
     nodes = ray.nodes()
     return sum(1 for node in nodes if node['Alive'])
+
 
 # Displays and saves the results
 def display_results(config, start_time, end_time, scores_dict):
@@ -45,7 +47,7 @@ def display_results(config, start_time, end_time, scores_dict):
             f.write(results_text)
 
 
-# Creates node map and transform data in the right format for torch_ppr pagerank
+# Creates node map and transform data in the right format for torch_ppr page_rank
 def input_format(nodes1, nodes2):
     # create set to get rid of duplicates
     all_nodes_set = set(nodes1 + nodes2)
@@ -60,6 +62,7 @@ def input_format(nodes1, nodes2):
     mapped_nodes2 = [node_map[node] for node in nodes2]
     
     return torch.tensor([mapped_nodes1, mapped_nodes2]), all_nodes
+
 
 # helper function to add nodes and corresponding scores to existing score dictionary
 def add_to_dict(global_pr, scores, nodes):
@@ -82,12 +85,14 @@ def aggregate_pr_results(global_pr_dict, new_pr_dict):
             
     return global_pr_dict
 
+
 # gets the N higher scores from scores dictionary
 def top_scores(N, scores_dict):
     res = sorted(scores_dict.items(), key=lambda item: item[1], reverse=True)[:N]
     top_N_scores = dict(res)
     
     return top_N_scores
+
 
 # saves the intermediate dictionary results in files in order to relief memory
 def save_intermediate_results(intermediate_result, filename):
@@ -118,6 +123,7 @@ def load_intermediate_results():
 
     return top_aggregated_result
 
+
 # normalizes the scores to all sum to 1
 def normalize_pr(scores_dict):
     # Extract scores from the dictionary
@@ -126,13 +132,12 @@ def normalize_pr(scores_dict):
     # Calculate the total score
     total_score = sum(scores)
     
-    # Normalize scores by dividing by the total score
+    # Normalize scores by dividing by the total score and reconstruct dictionary
     normalized_scores = [score / total_score for score in scores]
-    
-    # Reconstruct the dictionary with normalized scores
     normalized_scores_dict = {node: score for node, score in zip(scores_dict.keys(), normalized_scores)}
     
     return normalized_scores_dict
+
 
 # Deletes all the files used to save the intermediate results
 def cleanup():
@@ -142,6 +147,7 @@ def cleanup():
         for filename in os.listdir(directory):
             file_path = os.path.join(directory, filename)
             os.remove(file_path)
+
 
 @ray.remote
 def pagerank(data_chunk):
@@ -162,15 +168,17 @@ def distributed_pagerank(config):
     file_to_read = f'/data/{config["datafile"]}'
     
     with hdfs.open_input_file(file_to_read) as file:
-        read_options = pv.ReadOptions(block_size=config["batch_size"])
+        # Define CSV read options to read in chunks
+        read_options = pv.ReadOptions(block_size=config["batch_size"])  # 20 MB chunks
         csv_reader = pv.open_csv(file, read_options=read_options)
        
         futures = []
         global_pr = {}
         for i, batch in enumerate(csv_reader):
-            print("\n\nChunk", i)
+            # gather the execution requests for asynchronous parallel execution
             futures.append(pagerank.remote(batch))
-            # every ten futures execute the distributed calculations
+            
+            # every ten futures execute the distributed calculations in order not to overwhelm memory
             if i % 10 == 0:
                 batch_results = [ray.get(f) for f in futures]
                 # gather all the results in a dictionary
@@ -178,19 +186,21 @@ def distributed_pagerank(config):
                 for scores_dict in batch_results:
                     global_pr = aggregate_pr_results(global_pr, scores_dict)
 
+                # Clear current lists to free memory
                 futures = []
                 batch_results = []
                 gc.collect()
                 
+                # every thirty futures save the results in an intermediate file for memory relief
                 if i % 30 == 0:
-                    # After aggregating results save them in an intermediate file for memory relief
                     save_intermediate_results(global_pr, f"result_chunk_{i}.json")
                 
                     # Clear current results to free memory
                     global_pr = {}
                     gc.collect()
     
-    # make sure the last batch results are calculated (even if i % 10 != 0)
+    
+    # make sure the last batch results are calculated and saved 
     if futures != [] :
         batch_results = [ray.get(f) for f in futures]
         futures = []
@@ -212,7 +222,7 @@ def distributed_pagerank(config):
     normalized_pr = normalize_pr(final_aggregated_result)
     gc.collect()
     
-    # get the top 10 scores to display
+    # get the top 10 highest ranking nodes and their scores to display
     result_scores = top_scores(10, normalized_pr)
     
     return result_scores
@@ -234,7 +244,7 @@ def main():
     config = {
         "num_nodes" : get_num_nodes(),
         "datafile" : datafile,
-        "batch_size" : 1024 * 1024 * 10,  # 50MB chunks
+        "batch_size" : 1024 * 1024 * 10,  # 10MB chunks
         "hdfs_host" : '192.168.0.1',
         "hdfs_port" : 50000
     }
@@ -257,5 +267,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-    
