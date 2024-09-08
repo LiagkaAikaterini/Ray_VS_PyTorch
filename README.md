@@ -22,7 +22,7 @@ Our team executed the scripts with various number of nodes and utilized differen
 Our [report](documents/report.pdf), which is located in the repository's documents folder, provides detailed instructions for installation and setup, listing all the necessary dependencies. It also contains details on the infrastracture, datasets and algorithms we utilized, as well as a thourough analysis of the experiments' results.
 
 ### Source Code
-Each framework has a dedicated folder in our repository, named Ray and PyTorch, which contain subfolders named after the respective experiments (kmeans, pagerank, pneumonia_classification). Each of these subfolders include the corresponding python script, along with a res folder with the txt result files from our executions of the experiments.
+Each framework has a dedicated folder in our repository, named Ray and PyTorch, which contain subfolders named after the respective experiments (kmeans, pagerank, pneumonia_classification). Each of these subfolders include the corresponding python script, as well as a res folder with the txt result files from our executions of the experiments.
 
 #### Direct Navigation to the Scripts
 | **PyTorch Scripts** | **Ray Scripts**  |
@@ -32,6 +32,13 @@ Each framework has a dedicated folder in our repository, named Ray and PyTorch, 
 [X-Ray Image Classification](PyTorch/pneumonia_classification/pneumonia_classification.py) | [X-Ray Image Classification](Ray/pneumonia_classification/pneumonia_classification.py) |
 
 ### Datasets
-The datasets are not included in our repository due to their large size. However, they can be downloaded from the official websites, which are referenced in the "Datasets" section of our [report](documents/report.pdf).
-
+The datasets are not included in our repository due to their large size. However, they can be downloaded from the official websites, which are also referenced in the "Datasets" section of our [report](documents/report.pdf) :
+* [Friendster social network](https://snap.stanford.edu/data/com-Friendster.html) from SNAP
+* [Chest X-Ray Images (Pneumonia)](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia/data) from Kaggle Datasets
+  
 In our repository's data folder the resize.py python script can be located, which was leveraged to create smaller data files from the Friendster Social Network Dataset.
+
+## Getting Started
+To get started with the project, follow these steps:
+
+
