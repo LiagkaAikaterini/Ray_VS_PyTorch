@@ -17,7 +17,7 @@ Full Name | NTUA id number (ΑΜ) | Github
 
 ## Navigation to Scripts
 | **PyTorch Scripts** | **Ray Scripts**  |
-| :---: | :---: 
+| :---: | :---: |
 [k-means Clustering](PyTorch/kmeans/kmeans.py)                 | [k-means Clustering](Ray/kmeans/kmeans.py)                     | 
 [PageRank](PyTorch/pagerank/pagerank.py)            | [PageRank](Ray/pagerank/pagerank.py)                | 
 [X-Ray Image Classification](PyTorch/pneumonia_classification/pneumonia_classification.py) | [X-Ray Image Classification](Ray/pneumonia_classification/pneumonia_classification.py) |
