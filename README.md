@@ -16,8 +16,8 @@ Full Name | NTUA id number (ΑΜ) | Github
 Τζέλλας Απόστολος-Στέφανος | el19878 | [Apostolos Stefanos Tzellas](https://github.com/tzellas)
 
 ## Navigation to Scripts
-| **Experiment** | **PyTorch Script** | **Ray Script**  | **Results Directory** |
-|:---: | :---: | :---: | :---: 
-| **K-Means Clustering**          | [k-means Script](PyTorch/kmeans/kmeans.py)                 | [Ray K-Means Script](Ray/kmeans/kmeans.py)                     | `/PyTorch/kmeans/res/`, `/Ray/kmeans/res/`     |
-| **PageRank Algorithm**          | [PageRank Script](PyTorch/pagerank/pagerank.py)            | [Ray PageRank Script](Ray/pagerank/pagerank.py)                | `/PyTorch/pagerank/res/`, `/Ray/pagerank/res/` |
-| **X-Ray Image Classification**  | [Classification Script](PyTorch/pneumonia_classification/pneumonia_classification.py) | [Classification Script](Ray/pneumonia_classification/pneumonia_classification.py) | `/PyTorch/pneumonia_classification/res/`, `/Ray/pneumonia_classification/res/` |
+| **PyTorch Scripts** | **Ray Scripts**  |
+| :---: | :---: 
+[k-means Clustering](PyTorch/kmeans/kmeans.py)                 | [k-means Clustering](Ray/kmeans/kmeans.py)                     | 
+[PageRank](PyTorch/pagerank/pagerank.py)            | [PageRank](Ray/pagerank/pagerank.py)                | 
+[X-Ray Image Classification](PyTorch/pneumonia_classification/pneumonia_classification.py) | [X-Ray Image Classification](Ray/pneumonia_classification/pneumonia_classification.py) |
