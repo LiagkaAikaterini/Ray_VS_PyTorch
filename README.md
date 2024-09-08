@@ -37,8 +37,3 @@ The datasets are not included in our repository due to their large size. However
 * [Chest X-Ray Images (Pneumonia)](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia/data) from Kaggle Datasets
   
 In our repository's data folder the resize.py python script can be located, which was leveraged to create smaller data files from the Friendster Social Network Dataset.
-
-## Getting Started
-To get started with the project, follow these steps:
-
-
