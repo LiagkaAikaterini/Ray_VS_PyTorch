@@ -1,0 +1,6 @@
+
+For file data_1 - number of worker machines 1 - batch size 52428800: 
+
+Calinski-Harabasz Score: 14362482.0
+Time taken (PyTorch): 642.164838552475 seconds
+Time taken for system to initialize (PyTorch): 0.003324747085571289 seconds

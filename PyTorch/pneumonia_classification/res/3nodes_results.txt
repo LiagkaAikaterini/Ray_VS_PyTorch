@@ -1,0 +1,50 @@
+
+Pneumonia Classification - Number of worker machines 3 : 
+
+Time taken (PyTorch): 887.990359544754 seconds
+
+Class Names : ['NORMAL', 'PNEUMONIA']
+Class to index : {'NORMAL': 0, 'PNEUMONIA': 1}
+
+Images Shape : torch.Size([64, 3, 224, 224])
+Labels Shape : torch.Size([64])
+
+Epoch 1 - Training loss: 111.684151442278
+Epoch 2 - Training loss: 19.889744906198413
+Epoch 3 - Training loss: 10.376268879288718
+Epoch 4 - Training loss: 6.172384765886124
+Epoch 5 - Training loss: 4.2852013146593455
+Epoch 6 - Training loss: 4.887229696399978
+Epoch 7 - Training loss: 5.351032298257841
+Epoch 8 - Training loss: 4.230127763535295
+Epoch 9 - Training loss: 2.725172338137219
+Epoch 10 - Training loss: 1.7450810793778015
+Number Of Images Tested = 624 
+
+Model Accuracy = 0.7227563858032227 
+
+
+Pneumonia Classification - Number of worker machines 3 : 
+
+Time taken (PyTorch): 898.1579024791718 seconds
+
+Class Names : ['NORMAL', 'PNEUMONIA']
+Class to index : {'NORMAL': 0, 'PNEUMONIA': 1}
+
+Images Shape : torch.Size([64, 3, 224, 224])
+Labels Shape : torch.Size([64])
+
+Epoch 1 - Training loss: 206.1458892268794
+Epoch 2 - Training loss: 29.24251021657671
+Epoch 3 - Training loss: 9.549762740813353
+Epoch 4 - Training loss: 6.299211056768863
+Epoch 5 - Training loss: 4.412439795222003
+Epoch 6 - Training loss: 3.2490346172735802
+Epoch 7 - Training loss: 3.848096429500618
+Epoch 8 - Training loss: 5.3595443844484665
+Epoch 9 - Training loss: 4.237782496338089
+Epoch 10 - Training loss: 2.163516988223834
+Number Of Images Tested = 624 
+
+Model Accuracy = 0.7724359035491943 
+

@@ -1,0 +1,6 @@
+
+For file data_1 - number of worker machines 2 - batch size 20971520: 
+
+Calinski-Harabasz Score: 18337182.723000787
+Time taken (Ray): 35.60210204124451 seconds
+Time taken for system to initialize (Ray): 0.5022127628326416 seconds

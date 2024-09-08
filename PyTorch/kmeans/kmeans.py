@@ -46,7 +46,7 @@ def display_results(config, world_size, start_time, end_time, end_time_system, c
     print(results_text)
 
     # Create custom file name in results directory, in order to save results for different data sizes and number of machines
-    directory = os.path.expanduser('~/pytorch/kmeans/res')
+    directory = os.path.expanduser('~/PyTorch/kmeans/res')
     file_name = f"{data_file}_{world_size}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
@@ -64,8 +64,8 @@ def display_results(config, world_size, start_time, end_time, end_time_system, c
             f.write(results_text)
 
 
+# perform kmeans and get the score for this data chunk
 def pytorch_kmeans(data_batch, clusters):
-    # perform kmeans and get the score for this data chunk
     kmeans = KMeans(n_clusters=clusters, random_state=42)
     kmeans.fit(data_batch)
 
@@ -118,9 +118,8 @@ def distributed_kmeans(rank, world_size):
             sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank)
             dataloader = DataLoader(dataset, batch_size=1024 * 1024, sampler=sampler)
             
-            # each batch is approximately 12MB - 1024*1024 samples
+            # each batch is approximately 12MB - 1024*1024 samples - perform the kmeans
             for batch in dataloader:
-                #batch=batch.to("cpu")
                 results.append(pytorch_kmeans(batch, config["n_clusters"]))
 
     # calculate the average score in each machine
@@ -138,7 +137,7 @@ def distributed_kmeans(rank, world_size):
     # Record end time
     end_time = time.time()
 
-    # Display the results after the time recording has ended in master node only
+    # Display the results after the time recording has ended only in the master node
     if rank == 0:
         display_results(config, world_size, start_time, end_time, end_time_system, global_avg_calinski_harabasz)
 
@@ -151,6 +150,7 @@ def main():
     world_size = int(os.getenv('WORLD_SIZE'))
     
     distributed_kmeans(rank, world_size)
+
 
 if __name__ == "__main__":
     main()

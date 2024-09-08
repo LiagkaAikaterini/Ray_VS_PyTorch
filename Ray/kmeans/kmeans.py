@@ -1,12 +1,12 @@
 import os
-import ray
-import numpy as np
-import ray.data
-from sklearn.cluster import KMeans
-from sklearn.metrics import calinski_harabasz_score
 import time
+import ray
+import ray.data
 import pyarrow.fs as fs
 import pyarrow.csv as pv
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.metrics import calinski_harabasz_score
 
     
 # Function to determine the number of active nodes in ray
@@ -29,7 +29,7 @@ def display_results(config, start_time, end_time, end_time_system, calinski_hara
     print(results_text)
 
     # Create custom file name in results directory, in order to save results for different data sizes and number of machines
-    directory = os.path.expanduser('~/ray/kmeans/res')
+    directory = os.path.expanduser('~/Ray/kmeans/res')
     file_name = f"{data_file}_{config['num_nodes']}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
@@ -53,7 +53,7 @@ def ray_kmeans(data_batch, config):
     node_ip = ray._private.services.get_node_ip_address()
     print(f"Executing on node with IP: {node_ip}")
 
-    # perform kmeans and get the score for this data chunk
+    # perform kmeans and get the Calinski-Harabasz index for this data chunk
     kmeans = KMeans(n_clusters=config["n_clusters"], random_state=42)
     kmeans.fit(data_batch)
 
@@ -66,14 +66,13 @@ def distributed_kmeans(config):
     hdfs_host = '192.168.0.1'
     hdfs_port = 50000
 
-    
     # Connect to HDFS using PyArrow's FileSystem
     hdfs = fs.HadoopFileSystem(host=hdfs_host, port=hdfs_port)
     file_to_read = f'/data/{config["datafile"]}'
 
     with hdfs.open_input_file(file_to_read) as file:
         # Define CSV read options to read in chunks
-        read_options = pv.ReadOptions(block_size=config["batch_size"])  # 50 MB chunks
+        read_options = pv.ReadOptions(block_size=config["batch_size"])  # 20 MB chunks
         csv_reader = pv.open_csv(file, read_options=read_options)
         
         results = ray.get([ray_kmeans.remote(batch.to_pandas().values, config) for batch in csv_reader])

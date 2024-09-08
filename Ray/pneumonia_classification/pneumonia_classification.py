@@ -1,20 +1,19 @@
+import os
+import io
+import time
 import ray
 import ray.train
 from ray.train.torch import TorchTrainer
 import ray.train.torch
+from ray.train import ScalingConfig
 import torch
-import os
-import io
 from torch import nn,optim
 from torchvision import transforms as T
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch import nn, optim
 import torch.distributed as dist
+from torch.utils.data import Dataset, DataLoader
 import pyarrow.fs as fs
-import time
-from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from PIL import Image
-from ray.train import ScalingConfig
 
 TEST = 'test'
 TRAIN = 'train'
@@ -35,14 +34,17 @@ class customDataset(Dataset):
         # List all files and directories in the directory
         file_infos = self.hdfs.get_file_info(fs.FileSelector(self.data_dir, recursive=True))
 
+        # add files (images) to the file_list and the directories in the classes
         for file_info in file_infos:
             if file_info.type == fs.FileType.File:
                 file_list.append(file_info.path)
             elif file_info.type == fs.FileType.Directory:
                 classes.append(os.path.basename(file_info.path))
 
+        # attribute a unique int label to each class
         classes.sort()
         class_to_idx = {cls: idx for idx, cls in enumerate(classes)}
+        
         return file_list, classes, class_to_idx
 
     def __len__(self):
@@ -142,7 +144,7 @@ def display_results(config, start_time, end_time, result_text):
     ) + result_text
     
     # Create custom file name in results directory, in order to save results for different number of machines
-    directory = os.path.expanduser('~/ray/pneumonia_classification/res')
+    directory = os.path.expanduser('~/Ray/pneumonia_classification/res')
     file_name = f"{config['world_size']}nodes_results.txt"
 
     file_path = os.path.join(directory, file_name)
@@ -159,8 +161,9 @@ def display_results(config, start_time, end_time, result_text):
         with open(file_path, 'w') as f:
             f.write(results_text)
 
+
 def train(trainloader, optimizer, model, criterion):
-    model.train()
+    model.train()  # Set model to training mode
     running_loss = 0
     for images, labels in trainloader:
         '''
@@ -220,22 +223,27 @@ def test(testloader, device, model):
 def distributed_classification(config):
     result_text = ""
 
+    # create the datasets - dataloaders
     trainset = customDataset(config = config, data_dir = os.path.join(config['data_dir'], TRAIN), transform = data_transforms(TRAIN))
     testset = customDataset(config = config, data_dir = os.path.join(config['data_dir'], TEST), transform = data_transforms(TEST))
     validset = customDataset(config = config, data_dir = os.path.join(config['data_dir'], VAL), transform = data_transforms(VAL))
     
     
+    # get info for the results
     class_names = trainset.classes
     result_text += f'\nClass Names : {class_names}\n'
     result_text += f'Class to index : {trainset.class_to_idx}\n\n'
+
 
     trainloader = DataLoader(trainset, batch_size = config['batch_size'], shuffle = True)
     validloader = DataLoader(validset, batch_size = config['batch_size'], shuffle = True)
     testloader = DataLoader(testset, batch_size = config['batch_size'], shuffle = True)
     
+    # ray will add samplers if needed
     trainloader = ray.train.torch.prepare_data_loader(trainloader)
     testloader = ray.train.torch.prepare_data_loader(testloader)
 
+    # get info for the results
     images, labels = next(iter(trainloader))
 
     result_text += f'Images Shape : {images.shape}\n'
@@ -276,8 +284,10 @@ def distributed_classification(config):
         model = model.cuda()
         criterion = criterion.cuda()
     '''    
+    
     # Train  
     for i in range(config['epochs']):
+        # if there is a dataloader (more than 1 nodes) set epoch to its sampler for synchronization in all the nodes 
         if config['world_size'] > 1:
             trainloader.sampler.set_epoch(i+1)
         
@@ -336,12 +346,13 @@ def main():
         'data_dir' : "/data/chest_xray",
         'world_size' : get_num_nodes()
     }
-    # Workers with a CPU
+    
+    # Configuration for scaling training - Workers with CPU 
     scaling_config = ScalingConfig(
         num_workers = config['world_size'], 
         use_gpu = False, 
         resources_per_worker = {'CPU': 3},
-        # Try to schedule workers on different nodes.
+        # Try to schedule workers on different nodes
         placement_strategy="SPREAD"
     )
     
@@ -365,6 +376,7 @@ def main():
 
     # Shutdown Ray
     ray.shutdown()
+
 
 if __name__ == "__main__":
     main()
